@@ -29,6 +29,7 @@ class TestURLSession : XCTestCase {
             ("test_digest_auth_2", test_digest_auth_2),
             ("test_redirect_x_4", test_redirect_x_4),
             ("test_modified_redirect", test_modified_redirect),
+            ("test_blocked_redirect", test_blocked_redirect),
         ]
     }
 
@@ -50,6 +51,8 @@ class TestURLSession : XCTestCase {
         XCTAssertEqual(sd.jsonString(at: ["url"]), "https://httpbin.org/get")
     }
     
+    //Hits a URL with either basic or digest auth. Sends the wrong credentials 0 or more times, then the correct ones.
+    //Verify we get challenged on wrong credentials, and eventually get the authenticated page.
     func test_auth(type: String, tries: Int) {
         let (user,pass) = ("Get","Schwifty")
         let sd = SessionDelegate(testCase: self)
@@ -65,6 +68,7 @@ class TestURLSession : XCTestCase {
         }
         let error = sd.runDataTask(with: "http://httpbin.org/\(type)/\(user)/\(pass)")
         XCTAssertNil(error)
+        XCTAssertEqual(tries, 1)
         XCTAssertEqual(sd.jsonBool(at: ["authenticated"]), true)
     }
     
@@ -99,7 +103,7 @@ class TestURLSession : XCTestCase {
     }
 
     //Hits a 302 redirection URL sending us to swift.org. Catch the redirection, and instead go to a httpbin.org page.
-    //Check we arrive at the modified destination URL.
+    //Check we arrive at the modified destination.
     func test_modified_redirect() {
         let sd = SessionDelegate(testCase: self)
         sd.taskWillPerformHTTPRedirection = { task, response, newRequest, completion in
@@ -110,6 +114,25 @@ class TestURLSession : XCTestCase {
         let error = sd.runDataTask(with: "http://httpbin.org/redirect-to?url=http%3A%2F%2Fswift.org%2F")
         XCTAssertNil(error)
         XCTAssertEqual(sd.jsonString(at: ["args","modified_url"]), "yup")
+    }
+
+    //Hits a 302 redirection URL sending us to swift.org. Indicate via a delegate method that we don't want to follow it.
+    //Check that the 302 itself is what's delivered to us.
+    //NB: Right now, corelibs-foundation delivers the response first, *then* the redirect, which is the opposite of Mac/iOS.
+    //The latter order is kinda hinted at in the docs but not explicitly promised - it says you can pass nil to the redirect
+    //callback, which will cause the 302 to be delivered as response.
+    func test_blocked_redirect() {
+        let sd = SessionDelegate(testCase: self)
+        sd.taskWillPerformHTTPRedirection = { task, response, newRequest, completion in
+            completion(nil)
+        }
+        let error = sd.runDataTask(with: "http://httpbin.org/redirect-to?url=http%3A%2F%2Fswift.org%2F")
+        XCTAssertNil(error)
+        XCTAssertEqual(sd.eventSequence, "taskWillPerformHTTPRedirection,dataTaskDidReceiveResponse,taskDidComplete")
+        if sd.eventSequence == "taskWillPerformHTTPRedirection,dataTaskDidReceiveResponse,taskDidComplete" {
+            let response = sd.events[1].parameters[1] as! HTTPURLResponse
+            XCTAssertEqual(response.statusCode, 302)
+        }
     }
 
 
@@ -151,15 +174,7 @@ class TestURLSession : XCTestCase {
         }
 
         var eventSequence: String {
-            let names = events.map{ $0.name }
-            let deduped = names.reduce([]) { (names: [String], name: String) -> [String] in
-                if let last = names.last, last == name {
-                    return names
-                } else {
-                    return names + [name]
-                }
-            }
-            return deduped.joined(separator: ",")
+            return events.map{ $0.name }.joined(separator: ",")
         }
 
         var error: Error?
