@@ -22,6 +22,8 @@ class TestURLSession : XCTestCase {
         return [
             ("test_GET", test_GET),
             ("test_GET_https", test_GET_https),
+            ("test_POST", test_POST),
+            ("test_POST_JSON", test_POST_JSON),
             ("test_404", test_404),
             ("test_basic_auth_1", test_basic_auth_1),
             ("test_basic_auth_2", test_basic_auth_2),
@@ -38,19 +40,46 @@ class TestURLSession : XCTestCase {
     //Hit a URL, check we get the expected content.
     func test_GET() {
         let sd = SessionDelegate(testCase: self)
-        let error = sd.runDataTask(with: "http://httpbin.org/get")
-        XCTAssertNil(error)
+        sd.runDataTask(with: "http://httpbin.org/get")
         XCTAssertEqual(sd.jsonString(at: ["url"]), "http://httpbin.org/get")
     }
 
     //Hit an https URL, check we get the expected content.
     func test_GET_https() {
         let sd = SessionDelegate(testCase: self)
-        let error = sd.runDataTask(with: "https://httpbin.org/get")
-        XCTAssertNil(error)
+        sd.runDataTask(with: "https://httpbin.org/get")
         XCTAssertEqual(sd.jsonString(at: ["url"]), "https://httpbin.org/get")
     }
-    
+
+    //POST some form data to a URL
+    //Verify the data was posted as expected, verify the default content-type header was added.
+    func test_POST() {
+        let body = "something=happening"
+        let sd = SessionDelegate(testCase: self)
+        var req = URLRequest(url: URL(string: "http://httpbin.org/post")!)
+        req.httpMethod = "POST"
+        req.httpBody = body.data(using: .ascii)
+        sd.runDataTask(with: req)
+        XCTAssertEqual(sd.jsonString(at: ["url"]), "http://httpbin.org/post")
+        XCTAssertEqual(sd.jsonString(at: ["headers","Content-Type"]), "application/x-www-form-urlencoded")
+        XCTAssertEqual(sd.jsonString(at: ["form","something"]), "happening")
+    }
+
+    //POST some JSON to a URL
+    //Verify the data was posted as expected, verify our content-type header was not overridden.
+    func test_POST_JSON() {
+        let body = "{\"nothing\":\"doing\"}"
+        let sd = SessionDelegate(testCase: self)
+        var req = URLRequest(url: URL(string: "http://httpbin.org/post")!)
+        req.httpMethod = "POST"
+        req.httpBody = body.data(using: .utf8)
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        sd.runDataTask(with: req)
+        XCTAssertEqual(sd.jsonString(at: ["url"]), "http://httpbin.org/post")
+        XCTAssertEqual(sd.jsonString(at: ["headers","Content-Type"]), "application/json")
+        XCTAssertEqual(sd.jsonString(at: ["json","nothing"]), "doing")
+    }
+
     //Hits a URL with either basic or digest auth. Sends the wrong credentials 0 or more times, then the correct ones.
     //Verify we get challenged on wrong credentials, and eventually get the authenticated page.
     func test_auth(type: String, tries: Int) {
@@ -66,8 +95,7 @@ class TestURLSession : XCTestCase {
                 completion(.useCredential, URLCredential(user: user, password: pass, persistence: .none))
             }
         }
-        let error = sd.runDataTask(with: "http://httpbin.org/\(type)/\(user)/\(pass)")
-        XCTAssertNil(error)
+        sd.runDataTask(with: "http://httpbin.org/\(type)/\(user)/\(pass)")
         XCTAssertEqual(tries, 1)
         XCTAssertEqual(sd.jsonBool(at: ["authenticated"]), true)
     }
@@ -80,8 +108,7 @@ class TestURLSession : XCTestCase {
     //Hit a 404 URL, check we get the right status code back.
     func test_404() {
         let sd = SessionDelegate(testCase: self)
-        let error = sd.runDataTask(with: "http://httpbin.org/status/404")
-        XCTAssertNil(error)
+        sd.runDataTask(with: "http://httpbin.org/status/404")
         XCTAssertEqual(sd.events.first?.name, "dataTaskDidReceiveResponse")
         let response = sd.events.first!.parameters[1] as! HTTPURLResponse
         XCTAssertEqual(response.statusCode, 404)
@@ -95,8 +122,7 @@ class TestURLSession : XCTestCase {
             sd.receivedData = nil
             completion(newRequest)
         }
-        let error = sd.runDataTask(with: "http://httpbin.org/redirect/4")
-        XCTAssertNil(error)
+        sd.runDataTask(with: "http://httpbin.org/redirect/4")
         XCTAssertEqual(sd.jsonString(at: ["url"]), "http://httpbin.org/get")
         let numRedirects = sd.events.filter{ $0.name == "taskWillPerformHTTPRedirection" }.count
         XCTAssertEqual(numRedirects, 4)
@@ -111,8 +137,7 @@ class TestURLSession : XCTestCase {
             let modifiedRequest = URLRequest(url: URL(string: "http://httpbin.org/get?modified_url=yup")!)
             completion(modifiedRequest)
         }
-        let error = sd.runDataTask(with: "http://httpbin.org/redirect-to?url=http%3A%2F%2Fswift.org%2F")
-        XCTAssertNil(error)
+        sd.runDataTask(with: "http://httpbin.org/redirect-to?url=http%3A%2F%2Fswift.org%2F")
         XCTAssertEqual(sd.jsonString(at: ["args","modified_url"]), "yup")
     }
 
@@ -126,8 +151,7 @@ class TestURLSession : XCTestCase {
         sd.taskWillPerformHTTPRedirection = { task, response, newRequest, completion in
             completion(nil)
         }
-        let error = sd.runDataTask(with: "http://httpbin.org/redirect-to?url=http%3A%2F%2Fswift.org%2F")
-        XCTAssertNil(error)
+        sd.runDataTask(with: "http://httpbin.org/redirect-to?url=http%3A%2F%2Fswift.org%2F")
         XCTAssertEqual(sd.eventSequence, "taskWillPerformHTTPRedirection,dataTaskDidReceiveResponse,taskDidComplete")
         if sd.eventSequence == "taskWillPerformHTTPRedirection,dataTaskDidReceiveResponse,taskDidComplete" {
             let response = sd.events[1].parameters[1] as! HTTPURLResponse
@@ -149,7 +173,7 @@ class TestURLSession : XCTestCase {
             session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
         }
 
-        func runDataTask(with request: URLRequest, timeout: TimeInterval = 8) -> Error? {
+        func runDataTask(with request: URLRequest, timeout: TimeInterval = 8) {
             var request = request
             request.timeoutInterval = timeout
             let expect = testCase.expectation(description: "Data task completed")
@@ -161,11 +185,11 @@ class TestURLSession : XCTestCase {
             let task = session.dataTask(with: request)
             task.resume()
             testCase.waitForExpectations(timeout: request.timeoutInterval + 4)
-            return result
+            XCTAssertNil(result)
         }
 
-        func runDataTask(with url: String) -> Error? {
-            return runDataTask(with: URLRequest(url: URL(string: url)!))
+        func runDataTask(with url: String) {
+            runDataTask(with: URLRequest(url: URL(string: url)!))
         }
 
         var events: [(name: String, parameters: [Any])] = []
