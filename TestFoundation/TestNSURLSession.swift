@@ -22,6 +22,7 @@ class TestURLSession : XCTestCase {
         return [
             ("test_GET", test_GET),
             ("test_GET_https", test_GET_https),
+            ("test_GET_gzip", test_GET_gzip),
             ("test_POST", test_POST),
             ("test_POST_JSON", test_POST_JSON),
             ("test_404", test_404),
@@ -49,6 +50,13 @@ class TestURLSession : XCTestCase {
         let sd = SessionDelegate(testCase: self)
         sd.runDataTask(with: "https://httpbin.org/get")
         XCTAssertEqual(sd.jsonString(at: ["url"]), "https://httpbin.org/get")
+    }
+
+    //Hit a URL returning gzipped content, check we get the expected content.
+    func test_GET_gzip() {
+        let sd = SessionDelegate(testCase: self)
+        sd.runDataTask(with: "http://httpbin.org/gzip")
+        XCTAssertEqual(sd.jsonBool(at: ["gzipped"]), true)
     }
 
     //POST some form data to a URL
