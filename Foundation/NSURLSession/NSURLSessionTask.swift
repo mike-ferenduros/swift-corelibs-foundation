@@ -572,6 +572,8 @@ fileprivate extension URLSessionTask {
         easyHandle.set(requestMethod: request.httpMethod ?? "GET")
         if request.httpMethod == "HEAD" {
             easyHandle.set(noBody: true)
+        } else if ((request.httpMethod == "POST") && (request.value(forHTTPHeaderField: "Content-Type") == nil)) {
+            easyHandle.set(customHeaders: ["Content-Type:application/x-www-form-urlencoded"])
         }
     }
 }
@@ -837,10 +839,13 @@ extension URLSessionTask {
             guard case .inMemory(let bodyData) = bodyDataDrain else {
                 fatalError("Task has data completion handler, but data drain is not in-memory.")
             }
+
             guard let s = session as? URLSession else { fatalError() }
-           
-            var data = Data(capacity: bodyData!.length)
-            data.append(Data(bytes: bodyData!.bytes, count: bodyData!.length)) 
+
+            var data = Data()
+            if let body = bodyData {
+                data = Data(bytes: body.bytes, count: body.length)
+            }
 
             s.delegateQueue.addOperation {
                 completion(data, response, nil)
