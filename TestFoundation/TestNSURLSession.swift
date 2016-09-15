@@ -30,6 +30,7 @@ class TestURLSession : XCTestCase {
             ("test_ftp",                    test_ftp),
             ("test_post",                   test_post),
             ("test_postJson",               test_postJson),
+            ("test_postStream",             test_postStream),
             ("test_404",                    test_404),
             ("test_basicAuth",              test_basicAuth),
             ("test_basicAuthRetry",         test_basicAuthRetry),
@@ -124,6 +125,20 @@ class TestURLSession : XCTestCase {
         XCTAssertEqual(sd.jsonString(at: ["url"]), "http://httpbin.org/post")
         XCTAssertEqual(sd.jsonString(at: ["headers","Content-Type"]), "application/json")
         XCTAssertEqual(sd.jsonString(at: ["json","nothing"]), "doing")
+    }
+
+    func test_postStream() {
+        let filler = String.init(repeating: "nom", count: 1000)     //~10k
+        let body = ("om=" + filler).data(using: .utf8)!
+
+        let sd = SessionDelegate(testCase: self)
+        var req = URLRequest(url: URL(string: "http://httpbin.org/post")!)
+        req.httpMethod = "POST"
+        req.httpBodyStream = InputStream(data: body)
+        sd.runDataTask(with: req)
+        XCTAssertEqual(sd.jsonString(at: ["url"]), "http://httpbin.org/post")
+        XCTAssertEqual(sd.jsonString(at: ["headers","Content-Type"]), "application/x-www-form-urlencoded")
+        XCTAssertEqual(sd.jsonString(at: ["form","om"]), filler)
     }
 
     //Hits a URL with either basic or digest auth. Sends the wrong credentials 0 or more times, then the correct ones.
