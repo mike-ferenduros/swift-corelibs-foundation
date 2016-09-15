@@ -21,8 +21,8 @@ class TestURLSession : XCTestCase {
     static var allTests: [(String, (TestURLSession) -> () throws -> Void)] {
         return [
             ("test_GET", test_GET),
-            ("test_GET_https", test_GET_https),
             ("test_GET_gzip", test_GET_gzip),
+            ("test_data_URI", test_data_URI),
             ("test_POST", test_POST),
             ("test_POST_JSON", test_POST_JSON),
             ("test_404", test_404),
@@ -33,23 +33,21 @@ class TestURLSession : XCTestCase {
             ("test_redirect_x_4", test_redirect_x_4),
             ("test_modified_redirect", test_modified_redirect),
             ("test_blocked_redirect", test_blocked_redirect),
+//            ("test_invalidate_session", test_invalidate_session),
+//            ("test_invalidate_and_finish_session", test_invalidate_and_finish_session),
+//            ("test_invalidate_and_cancel_session", test_invalidate_and_cancel_session),
+            ("test_ftp", test_ftp),
         ]
     }
 
-
-
     //Hit a URL, check we get the expected content.
     func test_GET() {
-        let sd = SessionDelegate(testCase: self)
-        sd.runDataTask(with: "http://httpbin.org/get")
-        XCTAssertEqual(sd.jsonString(at: ["url"]), "http://httpbin.org/get")
-    }
-
-    //Hit an https URL, check we get the expected content.
-    func test_GET_https() {
-        let sd = SessionDelegate(testCase: self)
-        sd.runDataTask(with: "https://httpbin.org/get")
-        XCTAssertEqual(sd.jsonString(at: ["url"]), "https://httpbin.org/get")
+        for scheme in ["http", "https"] {
+            let address = "\(scheme)://httpbin.org/get"
+            let sd = SessionDelegate(testCase: self)
+            sd.runDataTask(with: address)
+            XCTAssertEqual(sd.jsonString(at: ["url"]), address)
+        }
     }
 
     //Hit a URL returning gzipped content, check we get the expected content.
@@ -59,18 +57,32 @@ class TestURLSession : XCTestCase {
         XCTAssertEqual(sd.jsonBool(at: ["gzipped"]), true)
     }
 
-    //POST some form data to a URL
+    func test_data_URI() {
+        let addresses = [
+            "data:text/plain;charset=utf-8;base64,IUDCoyQlXiYqKClfKw==" : "!@£$%^&*()_+",
+            "data:text/plain;charset=utf-8,%21%40%C2%A3%24%25%5E%26%2A%28%29_%2B" : "!@£$%^&*()_+"
+        ]
+        for (uri, expected) in addresses {
+            let sd = SessionDelegate(testCase: self)
+            sd.runDataTask(with: uri)
+            XCTAssertEqual(sd.receivedString, expected)
+        }
+    }
+
+    //POST some form data to a URL, via both http and https
     //Verify the data was posted as expected, verify the default content-type header was added.
     func test_POST() {
-        let body = "something=happening"
-        let sd = SessionDelegate(testCase: self)
-        var req = URLRequest(url: URL(string: "http://httpbin.org/post")!)
-        req.httpMethod = "POST"
-        req.httpBody = body.data(using: .ascii)
-        sd.runDataTask(with: req)
-        XCTAssertEqual(sd.jsonString(at: ["url"]), "http://httpbin.org/post")
-        XCTAssertEqual(sd.jsonString(at: ["headers","Content-Type"]), "application/x-www-form-urlencoded")
-        XCTAssertEqual(sd.jsonString(at: ["form","something"]), "happening")
+        for scheme in ["http", "https"] {
+            let body = "something=happening"
+            let sd = SessionDelegate(testCase: self)
+            var req = URLRequest(url: URL(string: "\(scheme)://httpbin.org/post")!)
+            req.httpMethod = "POST"
+            req.httpBody = body.data(using: .ascii)
+            sd.runDataTask(with: req)
+            XCTAssertEqual(sd.jsonString(at: ["url"]), "\(scheme)://httpbin.org/post")
+            XCTAssertEqual(sd.jsonString(at: ["headers","Content-Type"]), "application/x-www-form-urlencoded")
+            XCTAssertEqual(sd.jsonString(at: ["form","something"]), "happening")
+        }
     }
 
     //POST some JSON to a URL
@@ -167,6 +179,60 @@ class TestURLSession : XCTestCase {
         }
     }
 
+/*
+    invalidateAndCancel, finishTasksAndInvalidate not yet implemented.
+    How to import DispatchQueue?
+
+    //Create a session, then invalidate it.
+    //Ensure we get the right delegate event.
+    func test_invalidate_session() {
+        let sd = SessionDelegate(testCase: self)
+        let becameInvalid = expectation(description: "Session didBecomeInvalidWithError")
+        sd.didBecomeInvalid = { _ in becameInvalid.fulfill() }
+        sd.session.invalidateAndCancel()
+        waitForExpectations(timeout: 10)
+    }
+
+    //Hit a slow-to-respond URL. Before it responds, call finishTasksAndInvalidate on the session.
+    //Ensure the task succeeds successfully before the didBecomeInvalid event arrives.
+    func test_invalidate_and_finish_session() {
+        let sd = SessionDelegate(testCase: self)
+        let session = sd.session!
+        DispatchQueue.global().asyncAfter(deadline: DispatchTime.now() + 1.0) {
+            session.finishTasksAndInvalidate()
+        }
+        sd.runDataTask(with: "http://httpbin.org/delay/2")
+        XCTAssertEqual(sd.jsonString(at: ["url"]), "http://httpbin.org/delay/2")
+        XCTAssertEqual(sd.events.last?.name, "didBecomeInvalid")
+    }
+
+    //Hit a slow-to-respond URL. Before it responds, call finishTasksAndInvalidate on the session.
+    //Ensure the task fails with an error before the didBecomeInvalid event arrives.
+    func test_invalidate_and_cancel_session() {
+        let sd = SessionDelegate(testCase: self)
+        let session = sd.session!
+        DispatchQueue.global().asyncAfter(deadline: DispatchTime.now() + 1.0) {
+            session.invalidateAndCancel()
+        }
+        sd.runDataTask(with: "http://httpbin.org/delay/2", expectError: true)
+        XCTAssertEqual(sd.events.last?.name, "didBecomeInvalid")
+    }
+*/
+
+    //Request a file via anonymous FTP, check we get the expected content.
+    func test_ftp() {
+        let sd = SessionDelegate(testCase: self)
+        sd.runDataTask(with: "ftp://ftp.debian.org/debian/README")
+        XCTAssertNotNil(sd.response)
+        XCTAssertNotNil(sd.receivedData)
+        if let data = sd.receivedData {
+            let readme = String(data: data, encoding: .ascii)
+            XCTAssertNotNil(readme)
+            XCTAssertEqual(readme?.hasPrefix("See http://www.debian.org/ for information about Debian GNU/Linux."), true
+            )
+        }
+    }
+
 
 
     //Records all delegate callbacks, and dispatches them to configurable callbacks.
@@ -181,7 +247,7 @@ class TestURLSession : XCTestCase {
             session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
         }
 
-        func runDataTask(with request: URLRequest, timeout: TimeInterval = 8) {
+        func runDataTask(with request: URLRequest, expectError: Bool = false, timeout: TimeInterval = 8) {
             var request = request
             request.timeoutInterval = timeout
             let expect = testCase.expectation(description: "Data task completed")
@@ -193,11 +259,15 @@ class TestURLSession : XCTestCase {
             let task = session.dataTask(with: request)
             task.resume()
             testCase.waitForExpectations(timeout: request.timeoutInterval + 4)
-            XCTAssertNil(result)
+            if expectError {
+                XCTAssertNotNil(result)
+            } else {
+                XCTAssertNil(result)
+            }
         }
 
-        func runDataTask(with url: String) {
-            runDataTask(with: URLRequest(url: URL(string: url)!))
+        func runDataTask(with url: String, expectError: Bool = false) {
+            runDataTask(with: URLRequest(url: URL(string: url)!), expectError: expectError)
         }
 
         var events: [(name: String, parameters: [Any])] = []
@@ -211,6 +281,7 @@ class TestURLSession : XCTestCase {
 
         var error: Error?
         var receivedData: Data?
+        var response: URLResponse?
 
         //URLSessionDelegate
         var didBecomeInvalid: ((Error?) -> Void)?
@@ -272,6 +343,7 @@ class TestURLSession : XCTestCase {
         }
         public func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse, completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
             log("dataTaskDidReceiveResponse", dataTask, response)
+            self.response = response
             dataTaskDidReceiveResponse?(dataTask, response, completionHandler)
         }
         public func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didBecome downloadTask: URLSessionDownloadTask) {
@@ -317,7 +389,16 @@ class TestURLSession : XCTestCase {
             streamTaskDidBecomeStreams?(streamTask, inputStream, outputStream)
         }
 
-        //This is a common enough thing to do that we should make it easy
+        //Interpret receivedData as utf8
+        var receivedString: String? {
+            if let data = receivedData {
+                return String(data: data, encoding: .utf8)
+            } else {
+                return nil
+            }
+        }
+        
+
         var receivedJSON: Any? {
             guard let data = receivedData else { return nil }
             return try? JSONSerialization.jsonObject(with: data)
