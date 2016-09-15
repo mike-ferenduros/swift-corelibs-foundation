@@ -45,38 +45,54 @@ class TestURLSession : XCTestCase {
     }
 
 
-    //Hit a URL, check we get the expected content.
-    func test_get(uri: String, resultPath: [String], expected: Any) {
-        let sd = SessionDelegate(testCase: self)
-        sd.runDataTask(with: uri)
+    //Hit a URL, check we get the expected content. Try with all dataTask API flavours.
+    func test_get(url: String, resultPath: [String], expected: Any) {
+        for api in 0..<4 {
+            let sd = SessionDelegate(testCase: self)
+            switch api {
+                case 0: sd.runDataTask(with: url)
+                case 1: sd.runDataTask(with: URLRequest(url: URL(string: url)!))
+                case 2: sd.runCallbackDataTask(with: url)
+                case 3: sd.runCallbackDataTask(with: URLRequest(url: URL(string: url)!))
+                default: fatalError()
+            }
 
-        if let expected = expected as? String {
-            XCTAssertEqual(expected, sd.jsonString(at: resultPath))
-        } else if let expected = expected as? Bool {
-            XCTAssertEqual(expected, sd.jsonBool(at: resultPath))
-        } else {
-            assertionFailure()
+            if let expected = expected as? String {
+                XCTAssertEqual(expected, sd.jsonString(at: resultPath))
+            } else if let expected = expected as? Bool {
+                XCTAssertEqual(expected, sd.jsonBool(at: resultPath))
+            } else {
+                assertionFailure()
+            }
         }
     }
 
-    func test_get(uri: String, expected: String) {
-        let sd = SessionDelegate(testCase: self)
-        sd.runDataTask(with: uri)
-        XCTAssertEqual(sd.receivedString, expected)
+    func test_get(url: String, expected: String) {
+        for api in 0..<4 {
+            let sd = SessionDelegate(testCase: self)
+            switch api {
+                case 0: sd.runDataTask(with: url)
+                case 1: sd.runDataTask(with: URLRequest(url: URL(string: url)!))
+                case 2: sd.runCallbackDataTask(with: url)
+                case 3: sd.runCallbackDataTask(with: URLRequest(url: URL(string: url)!))
+                default: fatalError()
+            }
+            XCTAssertEqual(expected, sd.receivedString)
+        }
     }
 
     //http GET request
-    func test_getHttp()         { test_get(uri: "http://httpbin.org/get",       resultPath: ["url"],        expected: "http://httpbin.org/get") }
+    func test_getHttp()         { test_get(url: "http://httpbin.org/get",       resultPath: ["url"],        expected: "http://httpbin.org/get") }
     //https GET request
-    func test_getHttps()        { test_get(uri: "https://httpbin.org/get",      resultPath: ["url"],        expected: "https://httpbin.org/get") }
+    func test_getHttps()        { test_get(url: "https://httpbin.org/get",      resultPath: ["url"],        expected: "https://httpbin.org/get") }
     //http GET request returning gzipped body
-    func test_getGzipped()      { test_get(uri: "https://httpbin.org/gzip",     resultPath: ["gzipped"],    expected: true) }
+    func test_getGzipped()      { test_get(url: "https://httpbin.org/gzip",     resultPath: ["gzipped"],    expected: true) }
     //http GET request returning deflated body. Verify we get back the data we expected.
-    func test_getDeflated()     { test_get(uri: "https://httpbin.org/deflate",  resultPath: ["deflated"],   expected: true) }
+    func test_getDeflated()     { test_get(url: "https://httpbin.org/deflate",  resultPath: ["deflated"],   expected: true) }
     //data URI in urlencoded form
-    func test_getDataURIText()  { test_get(uri: "data:text/plain;charset=utf-8;base64,IUDCoyQlXiYqKClfKw==", expected: "!@£$%^&*()_+") }
+    func test_getDataURIText()  { test_get(url: "data:text/plain;charset=utf-8;base64,IUDCoyQlXiYqKClfKw==", expected: "!@£$%^&*()_+") }
     //data URI in base64 form
-    func test_getDataURIBase64(){ test_get(uri: "data:text/plain;charset=utf-8;base64,IUDCoyQlXiYqKClfKw==", expected: "!@£$%^&*()_+") }
+    func test_getDataURIBase64(){ test_get(url: "data:text/plain;charset=utf-8;base64,IUDCoyQlXiYqKClfKw==", expected: "!@£$%^&*()_+") }
 
 
     //POST some form data to a URL, via both http and https
@@ -277,7 +293,60 @@ class TestURLSession : XCTestCase {
         }
 
         func runDataTask(with url: String, expectError: Bool = false) {
-            runDataTask(with: URLRequest(url: URL(string: url)!), expectError: expectError)
+            guard let url = URL(string: url) else { fatalError() }
+            let expect = testCase.expectation(description: "Data task completed")
+            var result: Error?
+            self.taskDidComplete = { _, error in
+                result = error
+                expect.fulfill()
+            }
+            let task = session.dataTask(with: url)
+            task.resume()
+            testCase.waitForExpectations(timeout: 12)
+            if expectError {
+                XCTAssertNotNil(result)
+            } else {
+                XCTAssertNil(result)
+            }
+        }
+
+        func runCallbackDataTask(with request: URLRequest, expectError: Bool = false, timeout: TimeInterval = 8) {
+            var request = request
+            request.timeoutInterval = timeout
+            let expect = testCase.expectation(description: "Data task completed")
+            var result: Error?
+            let task = session.dataTask(with: request) { data, response, error in
+                self.receivedData = data
+                self.response = response
+                result = error
+                expect.fulfill()
+            }
+            task.resume()
+            testCase.waitForExpectations(timeout: request.timeoutInterval + 4)
+            if expectError {
+                XCTAssertNotNil(result)
+            } else {
+                XCTAssertNil(result)
+            }
+        }
+
+        func runCallbackDataTask(with url: String, expectError: Bool = false) {
+            guard let url = URL(string: url) else { fatalError() }
+            let expect = testCase.expectation(description: "Data task completed")
+            var result: Error?
+            let task = session.dataTask(with: url) { data, response, error in
+                self.receivedData = data
+                self.response = response
+                result = error
+                expect.fulfill()
+            }
+            task.resume()
+            testCase.waitForExpectations(timeout: 12)
+            if expectError {
+                XCTAssertNotNil(result)
+            } else {
+                XCTAssertNil(result)
+            }
         }
 
         var events: [(name: String, parameters: [Any])] = []
