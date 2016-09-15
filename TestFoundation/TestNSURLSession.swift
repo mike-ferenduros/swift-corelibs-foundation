@@ -20,58 +20,68 @@ class TestURLSession : XCTestCase {
 
     static var allTests: [(String, (TestURLSession) -> () throws -> Void)] {
         return [
-            ("test_GET", test_GET),
-            ("test_GET_gzip", test_GET_gzip),
-            ("test_data_URI", test_data_URI),
-            ("test_POST", test_POST),
-            ("test_POST_JSON", test_POST_JSON),
-            ("test_404", test_404),
-            ("test_basic_auth_1", test_basic_auth_1),
-            ("test_basic_auth_2", test_basic_auth_2),
-            ("test_digest_auth_1", test_digest_auth_1),
-            ("test_digest_auth_2", test_digest_auth_2),
-            ("test_redirect_x_4", test_redirect_x_4),
-            ("test_modified_redirect", test_modified_redirect),
-            ("test_blocked_redirect", test_blocked_redirect),
-//            ("test_invalidate_session", test_invalidate_session),
-//            ("test_invalidate_and_finish_session", test_invalidate_and_finish_session),
-//            ("test_invalidate_and_cancel_session", test_invalidate_and_cancel_session),
-            ("test_ftp", test_ftp),
+            ("test_getHttp",                test_getHttp),
+            ("test_getHttps",               test_getHttps),
+            ("test_getGzipped",             test_getGzipped),
+            ("test_getDeflated",            test_getDeflated),
+            ("test_getDataURIText",         test_getDataURIText),
+            ("test_getDataURIBase64",       test_getDataURIBase64),
+
+            ("test_ftp",                    test_ftp),
+            ("test_post",                   test_post),
+            ("test_postJson",               test_postJson),
+            ("test_404",                    test_404),
+            ("test_basicAuth",              test_basicAuth),
+            ("test_basicAuthRetry",         test_basicAuthRetry),
+            ("test_digestAuth",             test_digestAuth),
+            ("test_digestAuthRetry",        test_digestAuthRetry),
+            ("test_redirectChain",          test_redirectChain),
+            ("test_modifiedRedirect",       test_modifiedRedirect),
+            ("test_blockedRedirect",        test_blockedRedirect),
+//            ("test_invalidateSession",      test_invalidateSession),
+//            ("test_invalidateAndFinishSession", test_invalidateAndFinishSession),
+//            ("test_invalidateAndCancelSession", test_invalidateAndCancelSession),
         ]
     }
+
 
     //Hit a URL, check we get the expected content.
-    func test_GET() {
-        for scheme in ["http", "https"] {
-            let address = "\(scheme)://httpbin.org/get"
-            let sd = SessionDelegate(testCase: self)
-            sd.runDataTask(with: address)
-            XCTAssertEqual(sd.jsonString(at: ["url"]), address)
-        }
-    }
-
-    //Hit a URL returning gzipped content, check we get the expected content.
-    func test_GET_gzip() {
+    func test_get(uri: String, resultPath: [String], expected: Any) {
         let sd = SessionDelegate(testCase: self)
-        sd.runDataTask(with: "http://httpbin.org/gzip")
-        XCTAssertEqual(sd.jsonBool(at: ["gzipped"]), true)
-    }
+        sd.runDataTask(with: uri)
 
-    func test_data_URI() {
-        let addresses = [
-            "data:text/plain;charset=utf-8;base64,IUDCoyQlXiYqKClfKw==" : "!@£$%^&*()_+",
-            "data:text/plain;charset=utf-8,%21%40%C2%A3%24%25%5E%26%2A%28%29_%2B" : "!@£$%^&*()_+"
-        ]
-        for (uri, expected) in addresses {
-            let sd = SessionDelegate(testCase: self)
-            sd.runDataTask(with: uri)
-            XCTAssertEqual(sd.receivedString, expected)
+        if let expected = expected as? String {
+            XCTAssertEqual(expected, sd.jsonString(at: resultPath))
+        } else if let expected = expected as? Bool {
+            XCTAssertEqual(expected, sd.jsonBool(at: resultPath))
+        } else {
+            assertionFailure()
         }
     }
+
+    func test_get(uri: String, expected: String) {
+        let sd = SessionDelegate(testCase: self)
+        sd.runDataTask(with: uri)
+        XCTAssertEqual(sd.receivedString, expected)
+    }
+
+    //http GET request
+    func test_getHttp()         { test_get(uri: "http://httpbin.org/get",       resultPath: ["url"],        expected: "http://httpbin.org/get") }
+    //https GET request
+    func test_getHttps()        { test_get(uri: "https://httpbin.org/get",      resultPath: ["url"],        expected: "https://httpbin.org/get") }
+    //http GET request returning gzipped body
+    func test_getGzipped()      { test_get(uri: "https://httpbin.org/gzip",     resultPath: ["gzipped"],    expected: true) }
+    //http GET request returning deflated body. Verify we get back the data we expected.
+    func test_getDeflated()     { test_get(uri: "https://httpbin.org/deflate",  resultPath: ["deflated"],   expected: true) }
+    //data URI in urlencoded form
+    func test_getDataURIText()  { test_get(uri: "data:text/plain;charset=utf-8;base64,IUDCoyQlXiYqKClfKw==", expected: "!@£$%^&*()_+") }
+    //data URI in base64 form
+    func test_getDataURIBase64(){ test_get(uri: "data:text/plain;charset=utf-8;base64,IUDCoyQlXiYqKClfKw==", expected: "!@£$%^&*()_+") }
+
 
     //POST some form data to a URL, via both http and https
     //Verify the data was posted as expected, verify the default content-type header was added.
-    func test_POST() {
+    func test_post() {
         for scheme in ["http", "https"] {
             let body = "something=happening"
             let sd = SessionDelegate(testCase: self)
@@ -87,7 +97,7 @@ class TestURLSession : XCTestCase {
 
     //POST some JSON to a URL
     //Verify the data was posted as expected, verify our content-type header was not overridden.
-    func test_POST_JSON() {
+    func test_postJson() {
         let body = "{\"nothing\":\"doing\"}"
         let sd = SessionDelegate(testCase: self)
         var req = URLRequest(url: URL(string: "http://httpbin.org/post")!)
@@ -119,13 +129,13 @@ class TestURLSession : XCTestCase {
         XCTAssertEqual(tries, 1)
         XCTAssertEqual(sd.jsonBool(at: ["authenticated"]), true)
     }
-    
-    func test_basic_auth_1() { test_auth(type: "basic-auth", tries: 1) }
-    func test_basic_auth_2() { test_auth(type: "basic-auth", tries: 3) }
-    func test_digest_auth_1() { test_auth(type: "digest-auth/auth", tries: 1) }
-    func test_digest_auth_2() { test_auth(type: "digest-auth/auth", tries: 3) }
 
-    //Hit a 404 URL, check we get the right status code back.
+    func test_basicAuth()       { test_auth(type: "basic-auth", tries: 1) }
+    func test_basicAuthRetry()  { test_auth(type: "basic-auth", tries: 3) }
+    func test_digestAuth()      { test_auth(type: "digest-auth/auth", tries: 1) }
+    func test_digestAuthRetry() { test_auth(type: "digest-auth/auth", tries: 3) }
+
+    //GET request returning a 404 status code. Verify we get the correct code reported.
     func test_404() {
         let sd = SessionDelegate(testCase: self)
         sd.runDataTask(with: "http://httpbin.org/status/404")
@@ -136,7 +146,7 @@ class TestURLSession : XCTestCase {
 
     //Hit a chain of 4 * 302 redirections, finally landing at http://httpbin.org/get.
     //Check we get the expected 4 delegate calls, and arrive correctly.
-    func test_redirect_x_4() {
+    func test_redirectChain() {
         let sd = SessionDelegate(testCase: self)
         sd.taskWillPerformHTTPRedirection = { task, response, newRequest, completion in
             sd.receivedData = nil
@@ -150,7 +160,7 @@ class TestURLSession : XCTestCase {
 
     //Hits a 302 redirection URL sending us to swift.org. Catch the redirection, and instead go to a httpbin.org page.
     //Check we arrive at the modified destination.
-    func test_modified_redirect() {
+    func test_modifiedRedirect() {
         let sd = SessionDelegate(testCase: self)
         sd.taskWillPerformHTTPRedirection = { task, response, newRequest, completion in
             sd.receivedData = nil
@@ -166,7 +176,7 @@ class TestURLSession : XCTestCase {
     //NB: Right now, corelibs-foundation delivers the response first, *then* the redirect, which is the opposite of Mac/iOS.
     //The latter order is kinda hinted at in the docs but not explicitly promised - it says you can pass nil to the redirect
     //callback, which will cause the 302 to be delivered as response.
-    func test_blocked_redirect() {
+    func test_blockedRedirect() {
         let sd = SessionDelegate(testCase: self)
         sd.taskWillPerformHTTPRedirection = { task, response, newRequest, completion in
             completion(nil)
@@ -185,7 +195,7 @@ class TestURLSession : XCTestCase {
 
     //Create a session, then invalidate it.
     //Ensure we get the right delegate event.
-    func test_invalidate_session() {
+    func test_invalidateSession() {
         let sd = SessionDelegate(testCase: self)
         let becameInvalid = expectation(description: "Session didBecomeInvalidWithError")
         sd.didBecomeInvalid = { _ in becameInvalid.fulfill() }
@@ -195,7 +205,7 @@ class TestURLSession : XCTestCase {
 
     //Hit a slow-to-respond URL. Before it responds, call finishTasksAndInvalidate on the session.
     //Ensure the task succeeds successfully before the didBecomeInvalid event arrives.
-    func test_invalidate_and_finish_session() {
+    func test_invalidateAndFinishSession() {
         let sd = SessionDelegate(testCase: self)
         let session = sd.session!
         DispatchQueue.global().asyncAfter(deadline: DispatchTime.now() + 1.0) {
@@ -208,7 +218,7 @@ class TestURLSession : XCTestCase {
 
     //Hit a slow-to-respond URL. Before it responds, call finishTasksAndInvalidate on the session.
     //Ensure the task fails with an error before the didBecomeInvalid event arrives.
-    func test_invalidate_and_cancel_session() {
+    func test_invalidateAndCancelSession() {
         let sd = SessionDelegate(testCase: self)
         let session = sd.session!
         DispatchQueue.global().asyncAfter(deadline: DispatchTime.now() + 1.0) {
