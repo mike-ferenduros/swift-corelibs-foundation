@@ -53,7 +53,7 @@ class TestURLSession : XCTestCase {
     }
 
 
-    //Hit a URL, check we get the expected content. Try with all dataTask API flavours.
+    //Request data from a URL with one of the 4 data task APIs, verify that the result contains the expected value at the given JSON path
     func test_get(url: String, resultPath: [String], expected: Any) {
         for api in 0..<4 {
             let sess = Session(testCase: self)
@@ -75,6 +75,7 @@ class TestURLSession : XCTestCase {
         }
     }
 
+    //Request data from a URL with one of the 4 data task APIs, verify it returns the expected string.  
     func test_get(url: String, expected: String) {
         for api in 0..<4 {
             let sess = Session(testCase: self)
@@ -98,7 +99,7 @@ class TestURLSession : XCTestCase {
     //http GET request returning deflated body. Verify we get back the data we expected.
     func test_getDeflated()     { test_get(url: "https://httpbin.org/deflate",  resultPath: ["deflated"],   expected: true) }
     //data URI in urlencoded form
-    func test_getDataURIText()  { test_get(url: "data:text/plain;charset=utf-8;base64,IUDCoyQlXiYqKClfKw==", expected: "!@£$%^&*()_+") }
+    func test_getDataURIText()  { test_get(url: "data:text/plain;charset=utf-8,%21%40%C2%A3%24%25%5E%26%2A%28%29_%2B", expected: "!@£$%^&*()_+") }
     //data URI in base64 form
     func test_getDataURIBase64(){ test_get(url: "data:text/plain;charset=utf-8;base64,IUDCoyQlXiYqKClfKw==", expected: "!@£$%^&*()_+") }
 
