@@ -150,6 +150,10 @@ class TestURLSession : XCTestCase {
     }
 
 
+    //AFAICT, Old-Skool-Foundation's URLRequest.timeoutInterval is somewhat magical.
+    //It returns 60 by default, but it does NOT actually take effect and override the session config timeout unless you set it to something yourself, eg:
+    //    request.timeoutInterval = request.timeoutInterval
+    //Not sure what the default value of '60' actually signifies.
     func test_timeout(sessionTimeout: TimeInterval, requestTimeout: TimeInterval?, shouldSucceed: Bool, url: String = "http://httpbin.org/delay/10") {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = sessionTimeout
@@ -178,7 +182,7 @@ class TestURLSession : XCTestCase {
     func test_sessionTimeoutFail() { test_timeout(sessionTimeout: 5,  requestTimeout: nil, shouldSucceed: false) }
     //Hit a slow URL with a long-enough session timeout. Load should succeed.
     func test_sessionTimeoutPass1() { test_timeout(sessionTimeout: 15, requestTimeout: nil, shouldSucceed: true) }
-    //URL takes 10s to load, but supplies data at 1s intervals. Session timeout is 5s. Verify should succeed (ie. timeout is reset on receipt of data)
+    //URL takes 10s to load, but supplies data at 1s intervals. Session timeout is 5s. Load should succeed (ie. timeout should apply to inactivity, not entire transfer duration)
     func test_sessionTimeoutPass2() { test_timeout(sessionTimeout: 5, requestTimeout: nil, shouldSucceed: true, url: "http://httpbin.org/drip?duration=10&numbytes=10&code=200") }
     //Hit a slow URL with a long-enough session timeout, but a too-short request timeout. Load should fail (ie. request timeout has precedence)
     func test_requestTimeoutFail() { test_timeout(sessionTimeout: 15, requestTimeout: 5,  shouldSucceed: false) }
@@ -221,13 +225,15 @@ class TestURLSession : XCTestCase {
 
     //Hit a chain of 4 * 302 redirections, finally landing at http://httpbin.org/get.
     //Check we get the expected 4 delegate calls, and arrive correctly.
+    //Verify that redirection requests inherit timeout from original request.
     func test_redirectChain() {
         let sess = Session(testCase: self)
         sess.taskWillPerformHTTPRedirection = { task, response, newRequest, completion in
             sess.receivedData = nil
+            XCTAssertEqual(newRequest.timeoutInterval, task.originalRequest!.timeoutInterval)
             completion(newRequest)
         }
-        sess.runDataTask(with: "http://httpbin.org/redirect/4")
+        sess.runDataTask(with: URLRequest(url: URL(string: "http://httpbin.org/redirect/4")!))
         XCTAssertEqual(sess.jsonString(at: ["url"]), "http://httpbin.org/get")
         let numRedirects = sess.events.filter{ $0.name == "taskWillPerformHTTPRedirection" }.count
         XCTAssertEqual(numRedirects, 4)
